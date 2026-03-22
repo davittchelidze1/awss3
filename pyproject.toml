@@ -1,0 +1,22 @@
+[project]
+name = "awss3"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "davittchelidze1",email = "davit.tchelidze.1@btu.edu.ge"}
+]
+requires-python = ">=3.14"
+dependencies = [
+    "boto3 (>=1.42.73,<2.0.0)",
+    "python-dotenv (>=1.2.2,<2.0.0)",
+    "python-magic (>=0.4.27,<0.5.0)",
+    "python-magic-bin (>=0.4.14,<0.5.0)"
+]
+
+[project.scripts]
+s3tool = "awss3.main:main"
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
