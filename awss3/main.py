@@ -80,6 +80,15 @@ def delete_bucket(s3_client, bucket_name):
         return False
 
 
+def delete_file(s3_client, bucket_name, file_name):
+    try:
+        s3_client.delete_object(Bucket=bucket_name, Key=file_name)
+        return True
+    except ClientError as e:
+        logger.error(e)
+        return False
+
+
 def bucket_exists(s3_client, bucket_name):
     try:
         s3_client.head_bucket(Bucket=bucket_name)
@@ -224,6 +233,14 @@ def main():
     delete_parser = subparsers.add_parser("delete-bucket")
     delete_parser.add_argument("bucket_name")
 
+    delete_file_parser = subparsers.add_parser("delete-file")
+    delete_file_parser.add_argument("bucket_name")
+    delete_file_parser.add_argument("file_name")
+
+    del_parser = subparsers.add_parser("-del")
+    del_parser.add_argument("bucket_name")
+    del_parser.add_argument("file_name")
+
     exists_parser = subparsers.add_parser("bucket-exists")
     exists_parser.add_argument("bucket_name")
 
@@ -269,6 +286,10 @@ def main():
     elif args.command == "delete-bucket":
         if delete_bucket(s3_client, args.bucket_name):
             print("Bucket deleted")
+
+    elif args.command in ("delete-file", "-del"):
+        if delete_file(s3_client, args.bucket_name, args.file_name):
+            print("File deleted")
 
     elif args.command == "bucket-exists":
         if bucket_exists(s3_client, args.bucket_name):
