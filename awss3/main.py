@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 
 import boto3
+from boto3.s3.transfer import TransferConfig
 import magic
 from botocore.exceptions import ClientError
 from dotenv import load_dotenv
@@ -163,6 +164,54 @@ def read_bucket_policy(s3_client, bucket_name):
         return None
 
 
+def upload_large_file(s3_client, bucket_name, file_path, object_name=None):
+    if not validate_file_type(file_path):
+        logger.error("Only .bmp, .jpg, .jpeg, .png, .webp, .mp4 files are allowed")
+        return False
+
+    if object_name is None:
+        object_name = Path(file_path).name
+
+    # Multipart upload config for large files
+    config = TransferConfig(
+        multipart_threshold=25 * 1024 * 1024,  # 25MB
+        max_concurrency=10,
+        multipart_chunksize=25 * 1024 * 1024,  # 25MB
+        use_threads=True
+    )
+
+    try:
+        s3_client.upload_file(file_path, bucket_name, object_name, Config=config)
+        return True
+    except ClientError as e:
+        logger.error(e)
+        return False
+
+
+def set_lifecycle_policy(s3_client, bucket_name):
+    policy = {
+        'Rules': [
+            {
+                'ID': 'DeleteOldObjects120Days',
+                'Filter': {'Prefix': ''},
+                'Status': 'Enabled',
+                'Expiration': {
+                    'Days': 120
+                }
+            }
+        ]
+    }
+    try:
+        s3_client.put_bucket_lifecycle_configuration(
+            Bucket=bucket_name,
+            LifecycleConfiguration=policy
+        )
+        return True
+    except ClientError as e:
+        logger.error(e)
+        return False
+
+
 def main():
     parser = argparse.ArgumentParser(description="Simple S3 CLI tool")
     subparsers = parser.add_subparsers(dest="command")
@@ -182,6 +231,14 @@ def main():
     upload_parser.add_argument("bucket_name")
     upload_parser.add_argument("file_path")
     upload_parser.add_argument("--object-name", default=None)
+
+    upload_large_parser = subparsers.add_parser("upload-large-file")
+    upload_large_parser.add_argument("bucket_name")
+    upload_large_parser.add_argument("file_path")
+    upload_large_parser.add_argument("--object-name", default=None)
+
+    lifecycle_parser = subparsers.add_parser("set-lifecycle-policy")
+    lifecycle_parser.add_argument("bucket_name")
 
     object_acl_parser = subparsers.add_parser("set-object-access")
     object_acl_parser.add_argument("bucket_name")
@@ -227,6 +284,14 @@ def main():
             args.object_name
         ):
             print("File uploaded")
+
+    elif args.command == "upload-large-file":
+        if upload_large_file(s3_client, args.bucket_name, args.file_path, args.object_name):
+            print("Large file uploaded successfully using multipart upload")
+
+    elif args.command == "set-lifecycle-policy":
+        if set_lifecycle_policy(s3_client, args.bucket_name):
+            print("Lifecycle policy set (120 days expiration)")
 
     elif args.command == "set-object-access":
         if set_object_access_policy(s3_client, args.bucket_name, args.file_name):
