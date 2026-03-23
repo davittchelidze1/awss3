@@ -221,6 +221,53 @@ def set_lifecycle_policy(s3_client, bucket_name):
         return False
 
 
+def check_bucket_versioning(s3_client, bucket_name):
+    try:
+        response = s3_client.get_bucket_versioning(Bucket=bucket_name)
+        status = response.get('Status', 'Not Enabled')
+        return status
+    except ClientError as e:
+        logger.error(e)
+        return None
+
+
+def list_file_versions(s3_client, bucket_name, file_name):
+    try:
+        response = s3_client.list_object_versions(Bucket=bucket_name, Prefix=file_name)
+        versions = response.get('Versions', [])
+        versions = [v for v in versions if v['Key'] == file_name]
+        return versions
+    except ClientError as e:
+        logger.error(e)
+        return None
+
+
+def restore_previous_version(s3_client, bucket_name, file_name):
+    try:
+        versions = list_file_versions(s3_client, bucket_name, file_name)
+        if not versions or len(versions) < 2:
+            logger.error("Not enough versions to restore the previous one.")
+            return False
+
+        previous_version = versions[1]
+        previous_version_id = previous_version['VersionId']
+
+        copy_source = {
+            'Bucket': bucket_name,
+            'Key': file_name,
+            'VersionId': previous_version_id
+        }
+        s3_client.copy_object(
+            Bucket=bucket_name,
+            Key=file_name,
+            CopySource=copy_source
+        )
+        return True
+    except ClientError as e:
+        logger.error(e)
+        return False
+
+
 def main():
     parser = argparse.ArgumentParser(description="Simple S3 CLI tool")
     subparsers = parser.add_subparsers(dest="command")
@@ -266,6 +313,17 @@ def main():
 
     read_policy_parser = subparsers.add_parser("read-bucket-policy")
     read_policy_parser.add_argument("bucket_name")
+
+    versioning_parser = subparsers.add_parser("check-versioning")
+    versioning_parser.add_argument("bucket_name")
+
+    file_versions_parser = subparsers.add_parser("list-file-versions")
+    file_versions_parser.add_argument("bucket_name")
+    file_versions_parser.add_argument("file_name")
+
+    restore_version_parser = subparsers.add_parser("restore-previous-version")
+    restore_version_parser.add_argument("bucket_name")
+    restore_version_parser.add_argument("file_name")
 
     args = parser.parse_args()
 
@@ -326,6 +384,23 @@ def main():
         policy = read_bucket_policy(s3_client, args.bucket_name)
         if policy:
             print(policy)
+
+    elif args.command == "check-versioning":
+        status = check_bucket_versioning(s3_client, args.bucket_name)
+        if status is not None:
+            print(f"Bucket versioning status: {status}")
+
+    elif args.command == "list-file-versions":
+        versions = list_file_versions(s3_client, args.bucket_name, args.file_name)
+        if versions is not None:
+            print(f"Total versions: {len(versions)}")
+            for idx, v in enumerate(versions):
+                is_latest = " (Latest)" if v.get("IsLatest") else ""
+                print(f"{idx+1}. VersionId: {v.get('VersionId')} | Date: {v.get('LastModified')}{is_latest}")
+
+    elif args.command == "restore-previous-version":
+        if restore_previous_version(s3_client, args.bucket_name, args.file_name):
+            print("Successfully restored the previous version as the new current version.")
 
     else:
         parser.print_help()
