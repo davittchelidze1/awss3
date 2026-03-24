@@ -268,6 +268,42 @@ def restore_previous_version(s3_client, bucket_name, file_name):
         return False
 
 
+def organize_by_extension(s3_client, bucket_name):
+    try:
+        response = s3_client.list_objects_v2(Bucket=bucket_name)
+        objects = response.get('Contents', [])
+        
+        counts = {}
+        for obj in objects:
+            key = obj['Key']
+            if key.endswith('/'):
+                continue
+                
+            file_name = key.split('/')[-1]
+            if '.' not in file_name:
+                continue
+                
+            ext = file_name.split('.')[-1].lower()
+            new_key = f"{ext}/{file_name}"
+            
+            if key == new_key:
+                continue
+                
+            s3_client.copy_object(
+                Bucket=bucket_name,
+                CopySource={'Bucket': bucket_name, 'Key': key},
+                Key=new_key
+            )
+            s3_client.delete_object(Bucket=bucket_name, Key=key)
+            
+            counts[ext] = counts.get(ext, 0) + 1
+            
+        return counts
+    except ClientError as e:
+        logger.error(e)
+        return None
+
+
 def main():
     parser = argparse.ArgumentParser(description="Simple S3 CLI tool")
     subparsers = parser.add_subparsers(dest="command")
@@ -324,6 +360,9 @@ def main():
     restore_version_parser = subparsers.add_parser("restore-previous-version")
     restore_version_parser.add_argument("bucket_name")
     restore_version_parser.add_argument("file_name")
+
+    organize_parser = subparsers.add_parser("organize-by-ext")
+    organize_parser.add_argument("bucket_name")
 
     args = parser.parse_args()
 
@@ -401,6 +440,15 @@ def main():
     elif args.command == "restore-previous-version":
         if restore_previous_version(s3_client, args.bucket_name, args.file_name):
             print("Successfully restored the previous version as the new current version.")
+
+    elif args.command == "organize-by-ext":
+        counts = organize_by_extension(s3_client, args.bucket_name)
+        if counts is not None:
+            if not counts:
+                print("No files were moved.")
+            else:
+                for ext, count in counts.items():
+                    print(f"{ext} - {count}")
 
     else:
         parser.print_help()
