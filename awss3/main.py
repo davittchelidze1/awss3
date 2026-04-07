@@ -449,6 +449,15 @@ def main():
     restore_version_parser.add_argument("bucket_name")
     restore_version_parser.add_argument("file_name")
 
+    version_flags_parser = subparsers.add_parser("versioning-flags")
+    version_flags_parser.add_argument("bucket_name")
+    version_flags_parser.add_argument("--file-name", default=None)
+
+    version_flags_group = version_flags_parser.add_mutually_exclusive_group(required=True)
+    version_flags_group.add_argument("--check-bucket-versioning", action="store_true")
+    version_flags_group.add_argument("--show-file-versions", action="store_true")
+    version_flags_group.add_argument("--restore-previous-version", action="store_true")
+
     delete_old_versions_parser = subparsers.add_parser("delete-old-versions")
     delete_old_versions_parser.add_argument("bucket_name")
     delete_old_versions_parser.add_argument("file_names", nargs="+")
@@ -541,6 +550,34 @@ def main():
     elif args.command == "restore-previous-version":
         if restore_previous_version(s3_client, args.bucket_name, args.file_name):
             print("Successfully restored the previous version as the new current version.")
+
+    elif args.command == "versioning-flags":
+        if args.check_bucket_versioning:
+            status = check_bucket_versioning(s3_client, args.bucket_name)
+            if status == "Enabled":
+                print("Bucket versioning is enabled")
+            elif status is not None:
+                print("Bucket versioning is not enabled")
+
+        elif args.show_file_versions:
+            if not args.file_name:
+                print("--file-name is required with --show-file-versions")
+            else:
+                versions = list_file_versions(s3_client, args.bucket_name, args.file_name)
+                if versions is not None:
+                    print(f"Total versions: {len(versions)}")
+                    for idx, version in enumerate(versions):
+                        print(
+                            f"{idx + 1}. VersionId: {version.get('VersionId')} | "
+                            f"Date: {version.get('LastModified')}"
+                        )
+
+        elif args.restore_previous_version:
+            if not args.file_name:
+                print("--file-name is required with --restore-previous-version")
+            else:
+                if restore_previous_version(s3_client, args.bucket_name, args.file_name):
+                    print("Previous version uploaded as a new version")
 
     elif args.command == "delete-old-versions":
         if check_and_delete_old_versions(s3_client, args.bucket_name, args.file_names):
