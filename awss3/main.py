@@ -1,4 +1,5 @@
 import argparse
+from datetime import datetime, timedelta, timezone
 import json
 import logging
 import os
@@ -306,6 +307,50 @@ def restore_previous_version(s3_client, bucket_name, file_name):
         return False
 
 
+def check_and_delete_old_versions(s3_client, bucket_name, file_names):
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=180)
+    total_deleted = 0
+
+    for file_name in file_names:
+        print(f"Checking versions for: {file_name}")
+
+        versions = list_file_versions(s3_client, bucket_name, file_name)
+        if versions is None:
+            print("Could not read versions for this file")
+            continue
+
+        if not versions:
+            print("No versions found")
+            continue
+
+        print(f"Found {len(versions)} versions")
+
+        for version in versions:
+            version_id = version.get("VersionId")
+            last_modified = version.get("LastModified")
+            is_latest = version.get("IsLatest", False)
+
+            latest_text = " (Latest)" if is_latest else ""
+            print(f"- VersionId: {version_id} | Date: {last_modified}{latest_text}")
+
+            if last_modified and last_modified <= cutoff_date:
+                try:
+                    s3_client.delete_object(
+                        Bucket=bucket_name,
+                        Key=file_name,
+                        VersionId=version_id
+                    )
+                    total_deleted += 1
+                    print(f"  Deleted old version: {version_id}")
+                except ClientError as e:
+                    logger.error(e)
+
+        print()
+
+    print(f"Total deleted old versions: {total_deleted}")
+    return True
+
+
 def organize_by_extension(s3_client, bucket_name):
     try:
         response = s3_client.list_objects_v2(Bucket=bucket_name)
@@ -404,6 +449,10 @@ def main():
     restore_version_parser.add_argument("bucket_name")
     restore_version_parser.add_argument("file_name")
 
+    delete_old_versions_parser = subparsers.add_parser("delete-old-versions")
+    delete_old_versions_parser.add_argument("bucket_name")
+    delete_old_versions_parser.add_argument("file_names", nargs="+")
+
     organize_parser = subparsers.add_parser("organize-by-ext")
     organize_parser.add_argument("bucket_name")
 
@@ -492,6 +541,10 @@ def main():
     elif args.command == "restore-previous-version":
         if restore_previous_version(s3_client, args.bucket_name, args.file_name):
             print("Successfully restored the previous version as the new current version.")
+
+    elif args.command == "delete-old-versions":
+        if check_and_delete_old_versions(s3_client, args.bucket_name, args.file_names):
+            print("Old versions cleanup finished")
 
     elif args.command == "organize-by-ext":
         counts = organize_by_extension(s3_client, args.bucket_name)
