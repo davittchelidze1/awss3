@@ -102,7 +102,45 @@ def validate_file_type(file_path):
         return False
 
     mime_type = magic.from_file(file_path, mime=True)
+
     return mime_type in ALLOWED_MIME_TYPES
+
+
+def upload_file_to_matching_folder(s3_client, bucket_name, file_path, object_name=None):
+    if not Path(file_path).is_file():
+        logger.error("File does not exist")
+        return False
+
+    try:
+        mime_type = magic.from_file(file_path, mime=True)
+
+        file_name = object_name if object_name else Path(file_path).name
+        extension = Path(file_name).suffix.lower().replace(".", "")
+
+        if not extension:
+            if "/" in mime_type:
+                extension = mime_type.split("/")[1].replace(".", "-")
+            else:
+                extension = "other"
+
+        object_key = f"{extension}/{file_name}"
+
+        s3_client.upload_file(
+            file_path,
+            bucket_name,
+            object_key,
+            ExtraArgs={"ContentType": mime_type}
+        )
+
+        print(f"Uploaded to: {object_key}")
+        print(f"MIME type: {mime_type}")
+        return True
+    except ClientError as e:
+        logger.error(e)
+        return False
+    except Exception as e:
+        logger.error(e)
+        return False
 
 
 def download_file_and_upload_to_s3(s3_client, bucket_name, file_path, object_name=None):
@@ -332,6 +370,11 @@ def main():
     upload_parser.add_argument("file_path")
     upload_parser.add_argument("--object-name", default=None)
 
+    upload_by_magic_parser = subparsers.add_parser("upload-by-magic")
+    upload_by_magic_parser.add_argument("bucket_name")
+    upload_by_magic_parser.add_argument("file_path")
+    upload_by_magic_parser.add_argument("--object-name", default=None)
+
     upload_large_parser = subparsers.add_parser("upload-large-file")
     upload_large_parser.add_argument("bucket_name")
     upload_large_parser.add_argument("file_path")
@@ -396,6 +439,15 @@ def main():
 
     elif args.command == "upload-file":
         if download_file_and_upload_to_s3(
+            s3_client,
+            args.bucket_name,
+            args.file_path,
+            args.object_name
+        ):
+            print("File uploaded")
+
+    elif args.command == "upload-by-magic":
+        if upload_file_to_matching_folder(
             s3_client,
             args.bucket_name,
             args.file_path,
