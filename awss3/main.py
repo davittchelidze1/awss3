@@ -54,6 +54,7 @@ ALLOWED_MIME_TYPES = {
     "image/jpeg",
     "image/png",
     "image/webp",
+    "text/html",
     "video/mp4",
 }
 
@@ -196,14 +197,18 @@ def upload_file_to_matching_folder(s3_client, bucket_name, file_path, object_nam
 
 def download_file_and_upload_to_s3(s3_client, bucket_name, file_path, object_name=None):
     if not validate_file_type(file_path):
-        logger.error("Only .bmp, .jpg, .jpeg, .png, .webp, .mp4 files are allowed")
+        logger.error("Only .bmp, .jpg, .jpeg, .png, .webp, .html, .mp4 files are allowed")
         return False
 
     if object_name is None:
         object_name = Path(file_path).name
 
     try:
-        s3_client.upload_file(file_path, bucket_name, object_name)
+        mime_type = detect_mime_type(file_path)
+        extra_args = {"ContentType": mime_type} if mime_type else None
+        upload_kwargs = {"ExtraArgs": extra_args} if extra_args else {}
+
+        s3_client.upload_file(file_path, bucket_name, object_name, **upload_kwargs)
         return True
     except ClientError as e:
         logger.error(e)
