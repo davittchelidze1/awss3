@@ -2,22 +2,52 @@ import argparse
 from datetime import datetime, timedelta, timezone
 import json
 import logging
+import mimetypes
 import os
 from pathlib import Path
 
 import boto3
 from boto3.s3.transfer import TransferConfig
-import magic
-from botocore.exceptions import ClientError
-from dotenv import load_dotenv
+try:
+    import magic
+except ImportError:
+    magic = None
+from botocore.exceptions import BotoCoreError, ClientError
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    def load_dotenv(dotenv_path=None, override=False):
+        env_path = Path(dotenv_path) if dotenv_path else Path(".env")
+        if not env_path.is_file():
+            return False
 
-load_dotenv()
+        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+
+            if line.startswith("export "):
+                line = line[7:].strip()
+
+            if "=" not in line:
+                continue
+
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+
+            if override or key not in os.environ:
+                os.environ[key] = value
+
+        return True
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+ENV_FILE = Path(__file__).with_name(".env")
 
 ALLOWED_MIME_TYPES = {
     "image/bmp",
@@ -28,18 +58,33 @@ ALLOWED_MIME_TYPES = {
 }
 
 
+def get_env_value(name, default=None):
+    return os.getenv(name) or os.getenv(name.lower()) or default
+
+
+load_dotenv(ENV_FILE)
+
+
+def detect_mime_type(file_path):
+    if magic is not None:
+        return magic.from_file(file_path, mime=True)
+
+    mime_type, _ = mimetypes.guess_type(file_path)
+    return mime_type
+
+
 def init_client():
     try:
         client = boto3.client(
             "s3",
-            aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-            aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-            aws_session_token=os.getenv("AWS_SESSION_TOKEN"),
-            region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1")
+            aws_access_key_id=get_env_value("AWS_ACCESS_KEY_ID"),
+            aws_secret_access_key=get_env_value("AWS_SECRET_ACCESS_KEY"),
+            aws_session_token=get_env_value("AWS_SESSION_TOKEN"),
+            region_name=get_env_value("AWS_DEFAULT_REGION", "us-east-1")
         )
         client.list_buckets()
         return client
-    except ClientError as e:
+    except (ClientError, BotoCoreError) as e:
         logger.error("Failed to initialize S3 client")
         logger.error(e)
         return None
@@ -57,7 +102,7 @@ def list_buckets(s3_client):
 def create_bucket(s3_client, bucket_name, region=None):
     try:
         if region is None:
-            region = s3_client.meta.region_name or os.getenv("AWS_DEFAULT_REGION", "us-east-1")
+            region = s3_client.meta.region_name or get_env_value("AWS_DEFAULT_REGION", "us-east-1")
         
         if region == "us-east-1":
             s3_client.create_bucket(Bucket=bucket_name)
@@ -102,7 +147,9 @@ def validate_file_type(file_path):
     if not Path(file_path).is_file():
         return False
 
-    mime_type = magic.from_file(file_path, mime=True)
+    mime_type = detect_mime_type(file_path)
+    if mime_type is None:
+        return False
 
     return mime_type in ALLOWED_MIME_TYPES
 
@@ -113,7 +160,10 @@ def upload_file_to_matching_folder(s3_client, bucket_name, file_path, object_nam
         return False
 
     try:
-        mime_type = magic.from_file(file_path, mime=True)
+        mime_type = detect_mime_type(file_path)
+        if mime_type is None:
+            logger.error("Could not determine file MIME type")
+            return False
 
         file_name = object_name if object_name else Path(file_path).name
         extension = Path(file_name).suffix.lower().replace(".", "")
