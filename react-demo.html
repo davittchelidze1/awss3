@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>React Demo</title>
+    <style>
+        :root {
+            --bg-1: #f8f5ef;
+            --bg-2: #dce8e3;
+            --card: rgba(255, 255, 255, 0.85);
+            --text: #1f2a2a;
+            --muted: #526060;
+            --accent: #0f766e;
+            --accent-2: #f59e0b;
+            --border: rgba(31, 42, 42, 0.08);
+            --shadow: 0 20px 50px rgba(31, 42, 42, 0.12);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at top left, rgba(245, 158, 11, 0.22), transparent 28%),
+                radial-gradient(circle at bottom right, rgba(15, 118, 110, 0.22), transparent 30%),
+                linear-gradient(135deg, var(--bg-1), var(--bg-2));
+        }
+
+        #root {
+            min-height: 100vh;
+        }
+
+        .page {
+            width: min(960px, calc(100% - 32px));
+            margin: 0 auto;
+            padding: 48px 0 56px;
+        }
+
+        .hero {
+            display: grid;
+            grid-template-columns: 1.2fr 0.8fr;
+            gap: 20px;
+            align-items: stretch;
+        }
+
+        .panel {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 24px;
+            padding: 24px;
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(10px);
+        }
+
+        .eyebrow {
+            display: inline-block;
+            margin-bottom: 12px;
+            padding: 6px 12px;
+            border-radius: 999px;
+            background: rgba(15, 118, 110, 0.1);
+            color: var(--accent);
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        h1 {
+            margin: 0 0 12px;
+            font-size: clamp(36px, 6vw, 64px);
+            line-height: 0.95;
+        }
+
+        .lead {
+            margin: 0 0 24px;
+            color: var(--muted);
+            font-size: 18px;
+            line-height: 1.6;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+        }
+
+        .stat {
+            padding: 14px;
+            border-radius: 18px;
+            background: rgba(255, 255, 255, 0.72);
+            border: 1px solid var(--border);
+        }
+
+        .stat strong {
+            display: block;
+            font-size: 24px;
+            margin-bottom: 4px;
+        }
+
+        .mini-title {
+            margin: 0 0 12px;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--muted);
+        }
+
+        .counter-box {
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+            justify-content: space-between;
+            min-height: 100%;
+        }
+
+        .counter-number {
+            font-size: clamp(48px, 8vw, 72px);
+            font-weight: 800;
+            line-height: 1;
+        }
+
+        .button-row {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            border: 0;
+            border-radius: 14px;
+            padding: 12px 18px;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: transform 0.15s ease, opacity 0.15s ease;
+        }
+
+        button:hover {
+            transform: translateY(-1px);
+            opacity: 0.95;
+        }
+
+        .primary {
+            background: var(--accent);
+            color: white;
+        }
+
+        .secondary {
+            background: rgba(31, 42, 42, 0.08);
+            color: var(--text);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+            margin-top: 18px;
+        }
+
+        .feature {
+            padding: 18px;
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.72);
+            border: 1px solid var(--border);
+        }
+
+        .feature span {
+            display: inline-block;
+            margin-bottom: 8px;
+            font-size: 28px;
+        }
+
+        .feature h3 {
+            margin: 0 0 8px;
+            font-size: 18px;
+        }
+
+        .feature p {
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.5;
+        }
+
+        .footer-note {
+            margin-top: 18px;
+            text-align: center;
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        @media (max-width: 780px) {
+            .hero,
+            .grid,
+            .stats {
+                grid-template-columns: 1fr;
+            }
+
+            .page {
+                padding-top: 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <script type="text/babel">
+        const featureCards = [
+            {
+                icon: "01",
+                title: "React Component",
+                text: "This whole page is rendered from a small React app."
+            },
+            {
+                icon: "02",
+                title: "Hosted on S3",
+                text: "Easy to upload and show as a quick cloud demo project."
+            },
+            {
+                icon: "03",
+                title: "Interactive",
+                text: "The counter below proves it is not just static HTML."
+            }
+        ];
+
+        function App() {
+            const [count, setCount] = React.useState(0);
+
+            return (
+                <main className="page">
+                    <section className="hero">
+                        <div className="panel">
+                            <div className="eyebrow">Simple React Demo</div>
+                            <h1>Hello from React</h1>
+                            <p className="lead">
+                                A small demo project for showing React + AWS S3 hosting.
+                                Clean, simple, and enough for presentation.
+                            </p>
+
+                            <div className="stats">
+                                <div className="stat">
+                                    <strong>React</strong>
+                                    One-file demo
+                                </div>
+                                <div className="stat">
+                                    <strong>AWS S3</strong>
+                                    Static hosting
+                                </div>
+                                <div className="stat">
+                                    <strong>Easy</strong>
+                                    Ready to upload
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="panel counter-box">
+                            <div>
+                                <p className="mini-title">Interactive Part</p>
+                                <div className="counter-number">{count}</div>
+                                <p className="lead">
+                                    Click the button to show that the page is built with React state.
+                                </p>
+                            </div>
+
+                            <div className="button-row">
+                                <button className="primary" onClick={() => setCount(count + 1)}>
+                                    Click me
+                                </button>
+                                <button className="secondary" onClick={() => setCount(0)}>
+                                    Reset
+                                </button>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section className="grid">
+                        {featureCards.map((card) => (
+                            <article className="feature" key={card.title}>
+                                <span>{card.icon}</span>
+                                <h3>{card.title}</h3>
+                                <p>{card.text}</p>
+                            </article>
+                        ))}
+                    </section>
+
+                    <p className="footer-note">
+                        Demo by Davit Tchelidze
+                    </p>
+                </main>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById("root"));
+        root.render(<App />);
+    </script>
+</body>
+</html>
