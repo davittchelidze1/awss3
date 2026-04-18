@@ -5,6 +5,11 @@ import logging
 import mimetypes
 import os
 from pathlib import Path
+import random
+import sys
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import urlopen
 
 import boto3
 from boto3.s3.transfer import TransferConfig
@@ -48,6 +53,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 ENV_FILE = Path(__file__).with_name(".env")
+QUOTE_API_URL = "https://api.quotable.kurokeita.dev/api/quotes/random"
+QUOTE_LIST_API_URL = "https://api.quotable.kurokeita.dev/api/quotes"
+FALLBACK_AUTHOR_QUOTES = {
+    "linus torvalds": "Talk is cheap. Show me the code.",
+}
 
 ALLOWED_MIME_TYPES = {
     "image/bmp",
@@ -378,6 +388,147 @@ def host_static_website(s3_client, bucket_name, source_dir):
     return get_website_url(bucket_name, region)
 
 
+def fetch_json(url):
+    with urlopen(url, timeout=10) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def normalize_quote_data(raw_quote):
+    if not raw_quote:
+        return None
+
+    author_data = raw_quote.get("author")
+    if isinstance(author_data, dict):
+        author_name = author_data.get("name", "Unknown")
+    else:
+        author_name = author_data or "Unknown"
+
+    raw_tags = raw_quote.get("tags", [])
+    tags = []
+    for tag in raw_tags:
+        if isinstance(tag, dict):
+            tags.append(tag.get("name"))
+        else:
+            tags.append(tag)
+
+    return {
+        "content": raw_quote.get("content", ""),
+        "author": author_name,
+        "tags": [tag for tag in tags if tag],
+        "fetchedAt": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def build_fallback_quote(author):
+    quote_text = FALLBACK_AUTHOR_QUOTES.get(author.lower())
+    if not quote_text:
+        return None
+
+    return {
+        "content": quote_text,
+        "author": author,
+        "tags": ["technology"],
+        "fetchedAt": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def fetch_quote_from_api(author=None):
+    params = {}
+    if author:
+        params["author"] = author
+
+    url = QUOTE_API_URL
+    if params:
+        url = f"{url}?{urlencode(params)}"
+
+    try:
+        data = fetch_json(url)
+        quote = normalize_quote_data(data.get("quote"))
+        if quote:
+            return quote
+
+        if not author:
+            return None
+
+        list_url = f"{QUOTE_LIST_API_URL}?{urlencode({'author': author, 'limit': 10})}"
+        list_data = fetch_json(list_url)
+        quotes = list_data.get("data", [])
+        if not quotes:
+            return build_fallback_quote(author)
+
+        return normalize_quote_data(random.choice(quotes))
+    except (HTTPError, URLError, json.JSONDecodeError) as e:
+        logger.error("Failed to fetch quote from API")
+        logger.error(e)
+        return None
+
+
+def save_quote_to_bucket(s3_client, bucket_name, quote_data):
+    if not bucket_exists(s3_client, bucket_name):
+        region = s3_client.meta.region_name or get_env_value("AWS_DEFAULT_REGION", "us-east-1")
+        print(f"Bucket '{bucket_name}' does not exist. Creating it...")
+        if not create_bucket(s3_client, bucket_name, region):
+            return None
+
+    file_name = f"quote_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+
+    try:
+        s3_client.put_object(
+            Bucket=bucket_name,
+            Key=file_name,
+            Body=json.dumps(quote_data, indent=2, ensure_ascii=False).encode("utf-8"),
+            ContentType="application/json"
+        )
+        return file_name
+    except ClientError as e:
+        logger.error(e)
+        return None
+
+
+def run_inspire_cli():
+    parser = argparse.ArgumentParser(description="Simple quote CLI")
+    parser.add_argument("bucket_name", nargs="?")
+    parser.add_argument(
+        "--inspire",
+        nargs="?",
+        const="",
+        metavar="AUTHOR",
+        help="Fetch a random quote, or a quote by the given author"
+    )
+    parser.add_argument(
+        "-save",
+        "--save",
+        action="store_true",
+        help="Save the quote as a JSON file in the given bucket"
+    )
+    args = parser.parse_args()
+
+    author = args.inspire.strip() if args.inspire else None
+    quote = fetch_quote_from_api(author)
+
+    if quote is None:
+        if author:
+            print(f'No quote found for author "{author}"')
+        else:
+            print("Could not fetch a quote")
+        return
+
+    print(f'"{quote["content"]}"')
+    print(f'- {quote["author"]}')
+
+    if args.save:
+        if not args.bucket_name:
+            parser.error("bucket_name is required when using -save")
+
+        s3_client = init_client()
+        if s3_client is None:
+            return
+
+        file_name = save_quote_to_bucket(s3_client, args.bucket_name, quote)
+        if file_name:
+            print(f"Saved to bucket '{args.bucket_name}' as {file_name}")
+
+
 def read_bucket_policy(s3_client, bucket_name):
     try:
         policy = s3_client.get_bucket_policy(Bucket=bucket_name)
@@ -563,7 +714,14 @@ def organize_by_extension(s3_client, bucket_name):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Simple S3 CLI tool")
+    if "--inspire" in sys.argv[1:]:
+        run_inspire_cli()
+        return
+
+    parser = argparse.ArgumentParser(
+        description="Simple S3 CLI tool",
+        epilog='Quote mode: python main.py [bucket_name] --inspire ["Author Name"] [-save]'
+    )
     subparsers = parser.add_subparsers(dest="command")
 
     subparsers.add_parser("list-buckets")
