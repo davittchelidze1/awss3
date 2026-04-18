@@ -258,6 +258,126 @@ def create_bucket_policy(s3_client, bucket_name):
         return False
 
 
+def disable_bucket_public_access_block(s3_client, bucket_name):
+    try:
+        s3_client.put_public_access_block(
+            Bucket=bucket_name,
+            PublicAccessBlockConfiguration={
+                "BlockPublicAcls": False,
+                "IgnorePublicAcls": False,
+                "BlockPublicPolicy": False,
+                "RestrictPublicBuckets": False,
+            }
+        )
+        return True
+    except ClientError as e:
+        logger.error(e)
+        return False
+
+
+def configure_bucket_as_website(s3_client, bucket_name, index_document="index.html", error_document=None):
+    website_configuration = {
+        "IndexDocument": {"Suffix": index_document},
+    }
+
+    if error_document:
+        website_configuration["ErrorDocument"] = {"Key": error_document}
+
+    try:
+        s3_client.put_bucket_website(
+            Bucket=bucket_name,
+            WebsiteConfiguration=website_configuration
+        )
+        return True
+    except ClientError as e:
+        logger.error(e)
+        return False
+
+
+def upload_directory(s3_client, bucket_name, source_dir):
+    source_path = Path(source_dir)
+    if not source_path.is_dir():
+        logger.error("Source folder does not exist")
+        return False
+
+    uploaded_files = 0
+
+    for file_path in source_path.rglob("*"):
+        if not file_path.is_file():
+            continue
+
+        object_name = file_path.relative_to(source_path).as_posix()
+        mime_type = detect_mime_type(str(file_path)) or "application/octet-stream"
+        extra_args = {"ContentType": mime_type}
+
+        try:
+            s3_client.upload_file(
+                str(file_path),
+                bucket_name,
+                object_name,
+                ExtraArgs=extra_args
+            )
+            uploaded_files += 1
+        except ClientError as e:
+            logger.error("Failed to upload %s", object_name)
+            logger.error(e)
+            return False
+
+    if uploaded_files == 0:
+        logger.error("Source folder is empty")
+        return False
+
+    print(f"Uploaded {uploaded_files} files")
+    return True
+
+
+def get_website_url(bucket_name, region):
+    if region == "us-east-1":
+        return f"http://{bucket_name}.s3-website-us-east-1.amazonaws.com"
+
+    return f"http://{bucket_name}.s3-website-{region}.amazonaws.com"
+
+
+def host_static_website(s3_client, bucket_name, source_dir):
+    source_path = Path(source_dir)
+    if not source_path.is_dir():
+        logger.error("Source folder does not exist")
+        return None
+
+    index_file = source_path / "index.html"
+    if not index_file.is_file():
+        logger.error("Source folder must contain index.html")
+        return None
+
+    region = s3_client.meta.region_name or get_env_value("AWS_DEFAULT_REGION", "us-east-1")
+
+    if not bucket_exists(s3_client, bucket_name):
+        print(f"Bucket '{bucket_name}' does not exist. Creating it...")
+        if not create_bucket(s3_client, bucket_name, region):
+            return None
+
+    error_document = "error.html" if (source_path / "error.html").is_file() else "index.html"
+
+    if not upload_directory(s3_client, bucket_name, source_path):
+        return None
+
+    if not configure_bucket_as_website(
+        s3_client,
+        bucket_name,
+        index_document="index.html",
+        error_document=error_document
+    ):
+        return None
+
+    if not disable_bucket_public_access_block(s3_client, bucket_name):
+        return None
+
+    if not create_bucket_policy(s3_client, bucket_name):
+        return None
+
+    return get_website_url(bucket_name, region)
+
+
 def read_bucket_policy(s3_client, bucket_name):
     try:
         policy = s3_client.get_bucket_policy(Bucket=bucket_name)
@@ -448,6 +568,10 @@ def main():
 
     subparsers.add_parser("list-buckets")
 
+    host_parser = subparsers.add_parser("host")
+    host_parser.add_argument("bucket_name")
+    host_parser.add_argument("--source", required=True)
+
     create_parser = subparsers.add_parser("create-bucket")
     create_parser.add_argument("bucket_name")
 
@@ -531,6 +655,12 @@ def main():
         if buckets:
             for bucket in buckets["Buckets"]:
                 print(bucket["Name"])
+
+    elif args.command == "host":
+        website_url = host_static_website(s3_client, args.bucket_name, args.source)
+        if website_url:
+            print("Static website hosted successfully")
+            print(f"Website URL: {website_url}")
 
     elif args.command == "create-bucket":
         if create_bucket(s3_client, args.bucket_name):
